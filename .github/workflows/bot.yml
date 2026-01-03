@@ -1,0 +1,41 @@
+name: x-quote-bot
+
+on:
+  schedule:
+    - cron: "13 */2 * * *"  # 2時間ごと（分は固定でOK）
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install
+        run: npm ci
+
+      - name: Run bot
+        env:
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+          X_USER_ACCESS_TOKEN: ${{ secrets.X_USER_ACCESS_TOKEN }}
+          X_USER_ID: ${{ secrets.X_USER_ID }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+          POST_INTERVAL_SECONDS: "7200"
+          MAX_POSTS_PER_RUN: "1"
+          MIN_FAVES: "800"
+          LANG: "ja"
+          SCORE_THRESHOLD: "3500"
+        run: npm run run
+
+      - name: Persist data folder
+        # GitHub Actionsはファイルが永続化されないので、
+        # 本気運用なら data/ を別ストレージへ置く or DB化推奨。
+        run: |
+          echo "Note: data/ is not persisted on GitHub Actions by default."

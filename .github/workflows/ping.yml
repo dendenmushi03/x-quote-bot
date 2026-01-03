@@ -1,0 +1,14 @@
+name: ping-render-run
+
+on:
+  schedule:
+    - cron: "13 */2 * * *"  # 2時間ごと
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /run
+        run: |
+          curl -fsS "${{ secrets.RENDER_RUN_URL }}?key=${{ secrets.RUN_KEY }}"
