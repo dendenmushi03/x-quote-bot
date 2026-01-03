@@ -14,8 +14,7 @@ function buildQuery() {
   return [
     `lang:${config.LANG}`,
     "-is:reply",
-    "-is:retweet",
-    `min_faves:${config.MIN_FAVES}`
+    "-is:retweet"
   ].join(" ");
 }
 
@@ -27,11 +26,13 @@ export async function runOnce() {
   }
 
   const query = buildQuery();
-  const tweets = await searchRecent({
+
+  // min_faves は現プラン/パッケージで無効なので、クエリには入れず、取得後に like_count で足切りする
+  const tweets = (await searchRecent({
     bearerToken: config.X_BEARER_TOKEN,
     query,
     maxResults: 50
-  });
+  })).filter(t => (t.public_metrics?.like_count ?? 0) >= config.MIN_FAVES);
 
   const postedIdsSet = {
     has: async (id) => await hasPosted(id)
