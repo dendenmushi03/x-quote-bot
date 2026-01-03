@@ -10,9 +10,12 @@ function canPost(lastPostedAtMs) {
   return Date.now() - lastPostedAtMs >= intervalMs;
 }
 
-// ★重要：X検索クエリに min_faves を入れない（プランで弾かれる）
 function buildQuery() {
+  // Recent Searchは「演算子だけ」だと弾かれるので、超頻出の日本語1文字を入れる
+  const seed = (config.SEED_TERM || "の").trim() || "の";
+
   return [
+    `(${seed})`,
     `lang:${config.LANG}`,
     "-is:reply",
     "-is:retweet",
@@ -26,7 +29,6 @@ function getLikeCount(t) {
 export async function runOnce() {
   const state = await getState();
 
-  // ★連打対策（ここで止める）
   if (!canPost(state.last_posted_at)) {
     return {
       skipped: true,
@@ -35,9 +37,11 @@ export async function runOnce() {
     };
   }
 
+  // ★重要：この時点で「今回実行した」扱いにして、失敗でも連打されないようにする
+  await setState({ last_posted_at: Date.now() });
+
   const query = buildQuery();
 
-  // searchRecent は xApi.js 側で 429 をリトライしてくれる
   const tweets = await searchRecent({
     bearerToken: config.X_BEARER_TOKEN,
     query,
@@ -53,7 +57,7 @@ export async function runOnce() {
     if (!isCandidateTweet(t)) continue;
     if (!(await notPostedYet(t, postedIdsSet))) continue;
 
-    // ★MIN_FAVES はここで適用（検索演算子ではなく）
+    // ★MIN_FAVESは検索演算子じゃなくてここで足切り
     if (getLikeCount(t) < Number(config.MIN_FAVES || 0)) continue;
 
     const s = scoreTweet(t);
@@ -65,9 +69,7 @@ export async function runOnce() {
   candidates.sort((a, b) => b.score - a.score);
 
   if (candidates.length === 0) {
-    // 連打防止で「探索だけして何も投稿できなかった」場合もクールダウンは入れてOK
-    await setState({ last_posted_at: Date.now() });
-    return { skipped: true, reason: "no_candidates" };
+    return { skipped: true, reason: "no_candidates", query };
   }
 
   let postedCount = 0;
@@ -86,7 +88,6 @@ export async function runOnce() {
     });
 
     await markPosted(t.id);
-    await setState({ last_posted_at: Date.now() });
 
     posted.push({
       id: t.id,
@@ -98,5 +99,5 @@ export async function runOnce() {
     postedCount += 1;
   }
 
-  return { skipped: postedCount === 0, posted };
+  return { skipped: postedCount === 0, postedCount, query, posted };
 }

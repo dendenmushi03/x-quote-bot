@@ -1,8 +1,6 @@
 name: x-quote-bot
 
 on:
-  schedule:
-    - cron: "13 */2 * * *"  # 2時間ごと（分は固定でOK）
   workflow_dispatch:
 
 jobs:
