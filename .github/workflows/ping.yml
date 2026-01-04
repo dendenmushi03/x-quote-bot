@@ -11,4 +11,10 @@ jobs:
     steps:
       - name: Call /run
         run: |
-          curl -fsS "${{ secrets.RENDER_RUN_URL }}?key=${{ secrets.RUN_KEY }}"
+          set -e
+          URL="${{ secrets.RENDER_RUN_URL }}?key=${{ secrets.RUN_KEY }}"
+          echo "GET $URL"
+          curl -sS "$URL" | tee response.json
+          echo ""
+          echo "---- pretty ----"
+          cat response.json | python -m json.tool || cat response.json
