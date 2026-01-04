@@ -14,7 +14,7 @@ export class XApiError extends Error {
     this.body = body;
     this.retryAfterMs = retryAfterMs;
 
-    // ★追加：bot.js 側で判定しやすいようにする
+    // bot.js が確実に判定できるように
     this.code = status === 429 ? "RATE_LIMITED" : "X_API_ERROR";
   }
 }

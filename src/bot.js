@@ -6,8 +6,8 @@ import { getState, setState, hasPosted, markPosted } from "./db.js";
 import { generateQuoteComment } from "./llm.js";
 
 function canPost(lastPostedAtMs) {
-  const intervalMs = config.POST_INTERVAL_SECONDS * 1000;
-  return Date.now() - lastPostedAtMs >= intervalMs;
+  const intervalMs = Number(config.POST_INTERVAL_SECONDS || 7200) * 1000;
+  return Date.now() - Number(lastPostedAtMs || 0) >= intervalMs;
 }
 
 function buildQuery() {
@@ -29,6 +29,7 @@ function getLikeCount(t) {
 export async function runOnce() {
   const state = await getState();
 
+  // 2時間に1回「投稿を試す」(チェックだけで連打しない)
   if (!canPost(state.last_posted_at)) {
     return {
       skipped: true,
@@ -47,12 +48,12 @@ export async function runOnce() {
       maxResults: 50,
     });
   } catch (e) {
-    // 429は「今回は諦めて次回」運用にする（落とさない）
+    // 429 は正常スキップ（次回に回す）
     if (e?.code === "RATE_LIMITED" || e?.status === 429) {
       return {
         skipped: true,
         reason: "rate_limited",
-        retry_after_ms: e?.retryAfterMs ?? null,
+        retry_after_ms: e.retryAfterMs ?? null,
         query,
       };
     }
@@ -68,11 +69,11 @@ export async function runOnce() {
     if (!isCandidateTweet(t)) continue;
     if (!(await notPostedYet(t, postedIdsSet))) continue;
 
-    // ★MIN_FAVESは検索演算子じゃなくてここで足切り
+    // MIN_FAVES は検索演算子じゃなくてここで足切り
     if (getLikeCount(t) < Number(config.MIN_FAVES || 0)) continue;
 
     const s = scoreTweet(t);
-    if (s < config.SCORE_THRESHOLD) continue;
+    if (s < Number(config.SCORE_THRESHOLD || 0)) continue;
 
     candidates.push({ ...t, score: s });
   }
@@ -80,6 +81,8 @@ export async function runOnce() {
   candidates.sort((a, b) => b.score - a.score);
 
   if (candidates.length === 0) {
+    // 候補が無い場合も「今回投稿を試した」扱いにして2時間待つ
+    await setState({ last_posted_at: Date.now() });
     return { skipped: true, reason: "no_candidates", query };
   }
 
@@ -87,32 +90,16 @@ export async function runOnce() {
   const posted = [];
 
   for (const t of candidates) {
-    if (postedCount >= config.MAX_POSTS_PER_RUN) break;
+    if (postedCount >= Number(config.MAX_POSTS_PER_RUN || 1)) break;
 
     const comment = await generateQuoteComment(t.text);
     if (!comment || comment.length < 8) continue;
 
-    try {
-      await createQuotePost({
-        userAccessToken: config.X_USER_ACCESS_TOKEN,
-        quoteTweetId: t.id,
-        text: comment,
-      });
-    } catch (e) {
-      // ★投稿側の429も落とさずスキップ
-      if (e?.code === "RATE_LIMITED" || e?.status === 429) {
-        return {
-          skipped: true,
-          reason: "rate_limited_on_post",
-          retry_after_ms: e?.retryAfterMs ?? null,
-          query,
-        };
-      }
-      throw e;
-    }
-
-    // ★成功したときだけ更新
-    await setState({ last_posted_at: Date.now() });
+    await createQuotePost({
+      userAccessToken: config.X_USER_ACCESS_TOKEN,
+      quoteTweetId: t.id,
+      text: comment,
+    });
 
     await markPosted(t.id);
 
@@ -124,6 +111,14 @@ export async function runOnce() {
     });
 
     postedCount += 1;
+
+    // 成功したらタイムスタンプ更新（次回は2時間後）
+    await setState({ last_posted_at: Date.now() });
+  }
+
+  // 1件も投稿できなかった場合も「試行した」扱いにして2時間待つ
+  if (postedCount === 0) {
+    await setState({ last_posted_at: Date.now() });
   }
 
   return { skipped: postedCount === 0, postedCount, query, posted };
