@@ -37,9 +37,6 @@ export async function runOnce() {
     };
   }
 
-  // ★重要：この時点で「今回実行した」扱いにして、失敗でも連打されないようにする
-  await setState({ last_posted_at: Date.now() });
-
   const query = buildQuery();
 
   const tweets = await searchRecent({
@@ -86,6 +83,9 @@ export async function runOnce() {
       quoteTweetId: t.id,
       text: comment,
     });
+
+    // ★成功したときだけ更新
+    await setState({ last_posted_at: Date.now() });
 
     await markPosted(t.id);
 
