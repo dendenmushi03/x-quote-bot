@@ -39,11 +39,25 @@ export async function runOnce() {
 
   const query = buildQuery();
 
-  const tweets = await searchRecent({
-    bearerToken: config.X_BEARER_TOKEN,
-    query,
-    maxResults: 50,
-  });
+  let tweets = [];
+  try {
+    tweets = await searchRecent({
+      bearerToken: config.X_BEARER_TOKEN,
+      query,
+      maxResults: 50,
+    });
+  } catch (e) {
+    // 429は「今回は諦めて次回」運用にする（連打しない）
+    if (e?.code === "RATE_LIMITED") {
+      return {
+        skipped: true,
+        reason: "rate_limited",
+        retry_after_ms: e.retryAfterMs,
+        query,
+      };
+    }
+    throw e;
+  }
 
   const postedIdsSet = {
     has: async (id) => await hasPosted(id),
