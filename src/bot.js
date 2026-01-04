@@ -47,12 +47,12 @@ export async function runOnce() {
       maxResults: 50,
     });
   } catch (e) {
-    // 429は「今回は諦めて次回」運用にする（連打しない）
-    if (e?.code === "RATE_LIMITED") {
+    // 429は「今回は諦めて次回」運用にする（落とさない）
+    if (e?.code === "RATE_LIMITED" || e?.status === 429) {
       return {
         skipped: true,
         reason: "rate_limited",
-        retry_after_ms: e.retryAfterMs,
+        retry_after_ms: e?.retryAfterMs ?? null,
         query,
       };
     }
@@ -92,11 +92,24 @@ export async function runOnce() {
     const comment = await generateQuoteComment(t.text);
     if (!comment || comment.length < 8) continue;
 
-    await createQuotePost({
-      userAccessToken: config.X_USER_ACCESS_TOKEN,
-      quoteTweetId: t.id,
-      text: comment,
-    });
+    try {
+      await createQuotePost({
+        userAccessToken: config.X_USER_ACCESS_TOKEN,
+        quoteTweetId: t.id,
+        text: comment,
+      });
+    } catch (e) {
+      // ★投稿側の429も落とさずスキップ
+      if (e?.code === "RATE_LIMITED" || e?.status === 429) {
+        return {
+          skipped: true,
+          reason: "rate_limited_on_post",
+          retry_after_ms: e?.retryAfterMs ?? null,
+          query,
+        };
+      }
+      throw e;
+    }
 
     // ★成功したときだけ更新
     await setState({ last_posted_at: Date.now() });
